@@ -1,0 +1,35 @@
+# Generated index files (large binaries — regenerate with build_indexes.py)
+*.faiss
+*.faiss_meta.json
+*.lsh.pkl
+*.lsh_index.json
+
+# Generated profile files (large JSONL — regenerate with run_profiles.py)
+*.long_profiles.jsonl
+*.full_profiles.jsonl
+*.short_profile_prompts.jsonl
+*.short_profiles.jsonl
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Environment / secrets
+.env
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# Results (optional — comment out if you want to track results in git)
+# results/
+
+evaluate_schema_links.py
+
+# SQLite databases (large binaries — download from BIRD benchmark)
+MINIDEV/dev_databases/**/*.sqlite
