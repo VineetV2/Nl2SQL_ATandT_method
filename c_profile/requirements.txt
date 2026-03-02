@@ -1,0 +1,23 @@
+# AT&T Schema Linking Pipeline
+# Text-to-SQL with Column Profiling + FAISS + LSH
+#
+# Install:
+#   pip install -r requirements.txt
+#
+# Notes:
+# - openai pinned to 0.28.x for ChatCompletion.create / Embedding.create API
+# - faiss-cpu for semantic column retrieval (FAISS index)
+# - datasketch for literal value matching (MinHash LSH)
+# - sqlglot for SQL parsing and AST-based validation/fixes
+# - numpy required by faiss-cpu and embeddings
+
+# Core dependencies
+openai==0.28.1
+faiss-cpu
+datasketch
+sqlglot
+numpy
+
+# Optional (for sentence-transformers if using local embeddings)
+# sentence-transformers
+# torch
