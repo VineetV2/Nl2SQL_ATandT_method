@@ -26,8 +26,14 @@ __pycache__/
 # macOS
 .DS_Store
 
-# Results (generated at runtime)
-results/
+# Results (optional — comment out if you want to track results in git)
+# results/
 
-# MINIDEV data (download from BIRD benchmark — see README)
-MINIDEV/
+evaluate_schema_links.py
+
+# SQLite databases (large binaries — download from BIRD benchmark)
+MINIDEV/dev_databases/**/*.sqlite
+
+MINIDEV
+run_debit_card.sh
+2505.19988v2.pdf

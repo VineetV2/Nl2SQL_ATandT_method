@@ -31,7 +31,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-MINIDEV_ROOT = Path(__file__).parent / "MINIDEV" / "dev_databases"
+MINIDEV_ROOT = Path(__file__).parent / "MINIDEV " / "dev_databases"
 
 
 # ══════════════════════════════════════════════════════════════
@@ -719,8 +719,8 @@ def main():
     args = parser.parse_args()
 
     from llm import make_backend
-    print("Initializing OpenAI GPT-5.2 backend...")
-    backend = make_backend("openai", model_id="gpt-5.2", cache=True)
+    print("Initializing HuggingFace gpt-oss-120b backend...")
+    backend = make_backend("huggingface", model_id="openai/gpt-oss-120b", cache=True)
 
     if args.all:
         databases = sorted(d.name for d in MINIDEV_ROOT.iterdir() if d.is_dir())

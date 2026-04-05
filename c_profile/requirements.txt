@@ -18,6 +18,8 @@ datasketch
 sqlglot
 numpy
 
-# Optional (for sentence-transformers if using local embeddings)
-# sentence-transformers
-# torch
+# HuggingFace local inference (required for gpt-oss-20b on Wulver)
+transformers
+torch
+accelerate
+huggingface_hub

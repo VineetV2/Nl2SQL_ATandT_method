@@ -39,27 +39,23 @@ import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
-MINIDEV_ROOT = Path(__file__).parent / "MINIDEV" / "dev_databases"
+MINIDEV_ROOT = Path(__file__).parent / "MINIDEV " / "dev_databases"
 
 
 # ─────────────────────────────────────────────
-# Embedding via OpenAI (text-embedding-3-small)
+# Embedding via local sentence-transformers
 # ─────────────────────────────────────────────
 
-def get_embeddings(texts: List[str], model: str = "text-embedding-3-small") -> List[List[float]]:
-    """Call OpenAI embeddings API for a list of texts."""
-    import openai
-    openai.api_key = os.environ.get("OPENAI_API_KEY", "")
+_EMBED_MODEL = None
 
-    # Batch in chunks of 100 (API limit)
-    all_embeddings = []
-    batch_size = 100
-    for i in range(0, len(texts), batch_size):
-        batch = texts[i: i + batch_size]
-        response = openai.Embedding.create(model=model, input=batch)
-        batch_embeddings = [item["embedding"] for item in sorted(response["data"], key=lambda x: x["index"])]
-        all_embeddings.extend(batch_embeddings)
-    return all_embeddings
+def get_embeddings(texts: List[str], model: str = "sentence-transformers/all-MiniLM-L6-v2") -> List[List[float]]:
+    """Embed texts using a local sentence-transformer model (no API key needed)."""
+    global _EMBED_MODEL
+    if _EMBED_MODEL is None:
+        from sentence_transformers import SentenceTransformer
+        _EMBED_MODEL = SentenceTransformer(model)
+    embeddings = _EMBED_MODEL.encode(texts, batch_size=64, show_progress_bar=False)
+    return embeddings.tolist()
 
 
 # ─────────────────────────────────────────────

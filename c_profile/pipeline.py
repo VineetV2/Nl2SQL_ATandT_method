@@ -32,9 +32,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-MINIDEV_ROOT = Path(__file__).parent / "MINIDEV" / "dev_databases"
-MINIDEV_JSON = Path(__file__).parent / "MINIDEV" / "mini_dev_sqlite.json"
-TRAIN_JSON   = Path(__file__).resolve().parent.parent / "dataset" / "bird" / "train" / "train.json"
+MINIDEV_ROOT = Path(__file__).parent / "MINIDEV " / "dev_databases"
+MINIDEV_JSON = Path(__file__).parent / "MINIDEV " / "mini_dev_sqlite.json"
+TRAIN_JSON   = Path(__file__).resolve().parent.parent / "dataset" / "bird" / "train.json"
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -451,20 +451,29 @@ class FewShotRetriever:
         self.pool = [q for q in questions if q.get("question") and q.get("SQL")]
         self._index = None
 
-    def build(self) -> None:
-        """Embed all pool questions (masked) and build FAISS index."""
+    def build(self, cache_path: Optional[str] = None) -> None:
+        """Embed all pool questions (masked) and build FAISS index.
+        If cache_path is given, saves/loads embeddings to avoid re-embedding."""
         from indexes import get_embeddings
         import faiss
         import numpy as np
 
+        _cache = Path(cache_path) if cache_path else Path(__file__).parent / "fewshot_index.npy"
+
         texts = [mask_question(q["question"]) for q in self.pool]
-        print(f"  [FewShot] Embedding {len(texts)} masked questions for few-shot pool...")
-        embeddings = get_embeddings(texts)
 
-        dim = len(embeddings[0])
-        vecs = np.array(embeddings, dtype="float32")
+        if _cache.exists():
+            print(f"  [FewShot] Loading cached embeddings from {_cache.name}...")
+            vecs = np.load(str(_cache))
+        else:
+            print(f"  [FewShot] Embedding {len(texts)} masked questions for few-shot pool...")
+            embeddings = get_embeddings(texts)
+            vecs = np.array(embeddings, dtype="float32")
+            np.save(str(_cache), vecs)
+            print(f"  [FewShot] Saved embeddings cache → {_cache.name}")
+
         faiss.normalize_L2(vecs)
-
+        dim = vecs.shape[1]
         self._index = faiss.IndexFlatIP(dim)
         self._index.add(vecs)
         print(f"  [FewShot] Index built ({dim}-dim, {len(texts)} vectors).")
@@ -1051,7 +1060,7 @@ def demo_single_question():
     backend = None
     if not args.no_llm:
         from llm import make_backend
-        backend = make_backend("openai", model_id="gpt-5.2", cache=True)
+        backend = make_backend("huggingface", model_id="openai/gpt-oss-120b", cache=True)
 
     linker = SchemaLinker(args.db)
     result = linker.run(
@@ -1155,35 +1164,53 @@ def check_indexes(db_id: str) -> bool:
 # Main Pipeline Runner
 # ─────────────────────────────────────────────────────────────
 
+def _load_checkpoint(path: Path):
+    """Load existing results/errors from a checkpoint file. Returns (results, errors, done_ids)."""
+    if path and path.exists():
+        with open(path) as f:
+            data = json.load(f)
+        results = data.get("results", [])
+        errors  = data.get("errors", [])
+        done_ids = {r["question_id"] for r in results} | {e["question_id"] for e in errors}
+        print(f"[Checkpoint] Resuming: {len(results)} done, {len(errors)} errors, {len(done_ids)} total skipped")
+        return results, errors, done_ids
+    return [], [], set()
+
+
 def run_pipeline(
     questions: List[Dict],
     backend=None,
     faiss_top_k: int = 10,
     output_path: Optional[Path] = None,
     few_shot_retriever=None,
+    resume: bool = False,
 ) -> List[Dict]:
     """
     Run the schema linking pipeline for a list of questions.
     few_shot_retriever: FewShotRetriever instance (built once in main, shared across all questions).
+    resume: if True, load existing output_path and skip already-completed questions.
     Returns list of result dicts.
     """
-    # SchemaLinker defined in this file
-
     # Cache one SchemaLinker per db_id
     linkers: Dict[str, SchemaLinker] = {}
-    results: List[Dict] = []
-    errors:  List[Dict] = []
+
+    # Load checkpoint if resuming
+    if resume and output_path:
+        results, errors, done_ids = _load_checkpoint(output_path)
+    else:
+        results, errors, done_ids = [], [], set()
 
     total = len(questions)
-    print(f"\nProcessing {total} questions...")
+    remaining = [q for q in questions if q.get("question_id", questions.index(q)) not in done_ids]
+    print(f"\nProcessing {len(remaining)}/{total} questions (skipping {len(done_ids)} already done)...")
 
-    for i, q in enumerate(questions):
+    for i, q in enumerate(remaining):
         db_id    = q["db_id"]
         question = q["question"]
         evidence = q.get("evidence", "")
         qid      = q.get("question_id", i)
 
-        print(f"\n[{i+1}/{total}] Q#{qid} | db={db_id}")
+        print(f"\n[{i+1}/{len(remaining)}] Q#{qid} | db={db_id}")
 
         # Check indexes
         if not check_indexes(db_id):
@@ -1280,15 +1307,17 @@ def main():
     parser.add_argument("--db",  type=str, default="debit_card_specializing",
                         help="Single database to process")
     parser.add_argument("--all", action="store_true",
-                        help="Process all 11 databases (3-4 questions each)")
-    parser.add_argument("--questions_per_db", type=int, default=4,
-                        help="Questions per DB when using --all (default: 4)")
+                        help="Process all 11 databases (all questions)")
+    parser.add_argument("--questions_per_db", type=int, default=None,
+                        help="Limit questions per DB when using --all (default: all questions)")
     parser.add_argument("--top_k",  type=int, default=10,
                         help="FAISS top-k columns to retrieve (default: 10)")
     parser.add_argument("--no_llm", action="store_true",
                         help="Skip LLM calls (dry run: just schema linking)")
     parser.add_argument("--out",    type=str, default=None,
                         help="Output JSON path (default: results/schema_links_<db>_<ts>.json)")
+    parser.add_argument("--resume", action="store_true",
+                        help="Resume from existing --out checkpoint, skipping already-done questions")
     args = parser.parse_args()
 
     # Load questions
@@ -1301,17 +1330,32 @@ def main():
 
     print(f"Loaded {len(questions)} questions")
 
-    # Output path
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_path = Path(args.out) if args.out else (RESULTS_DIR / f"schema_links_{tag}_{ts}.json")
+    # Output path — keep a fixed name when resuming so checkpoint loads correctly
+    if args.out:
+        out_path = Path(args.out)
+    elif args.resume:
+        # Find the most recent matching results file to resume from
+        import glob as _glob
+        pattern = str(RESULTS_DIR / f"schema_links_{tag}_*.json")
+        matches = sorted(_glob.glob(pattern))
+        if matches:
+            out_path = Path(matches[-1])
+            print(f"[Resume] Found checkpoint: {out_path.name}")
+        else:
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            out_path = RESULTS_DIR / f"schema_links_{tag}_{ts}.json"
+            print(f"[Resume] No checkpoint found, starting fresh → {out_path.name}")
+    else:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out_path = RESULTS_DIR / f"schema_links_{tag}_{ts}.json"
     print(f"Output → {out_path}")
 
     # Backend
     backend = None
     if not args.no_llm:
         from llm import make_backend
-        print("Initializing GPT-5.2 backend...")
-        backend = make_backend("openai", model_id="gpt-5.2", cache=True)
+        print("Initializing HuggingFace gpt-oss-120b backend...")
+        backend = make_backend("huggingface", model_id="openai/gpt-oss-120b", cache=True)
     else:
         print("Dry run mode — no LLM calls")
 
@@ -1333,6 +1377,7 @@ def main():
         faiss_top_k=args.top_k,
         output_path=out_path,
         few_shot_retriever=few_shot_retriever,
+        resume=args.resume,
     )
     elapsed = time.time() - t0
 
